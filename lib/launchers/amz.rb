@@ -47,6 +47,8 @@ module BushSlicer
         )
       }) )
       Aws.config.update( config[:config_opts].merge({region: region})) if region
+
+      @account_id = awscred["aws_account_id"]
     end
 
     private def client_ec2
@@ -521,6 +523,11 @@ module BushSlicer
     # @return [String]
     def secret_key
       ec2.client.config.credentials.secret_access_key
+    end
+
+    # @return [String]
+    def account_id
+      return @account_id
     end
 
     # @return [Object] undefined
