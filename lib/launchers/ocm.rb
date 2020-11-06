@@ -99,11 +99,40 @@ module BushSlicer
     end
 
     def create_osd(name)
-      url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
+      ocm_token_file = Tempfile.new("ocm-token-file", Host.localhost.workdir)
+      File.open(ocm_token_file, "w") do |f|
+        f.write(@token)
+      end
+      ocm_json_file = Tempfile.new("ocm-json-file", Host.localhost.workdir)
+      File.open(ocm_json_file, "w") do |f|
+        f.write(generate_json(name))
+      end
+      script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
       %x(
         rm -rf /tmp/osd-provision.sh && \
-        curl #{url} --output /tmp/osd-provision.sh && \
-        chmod a+x /tmp/osd-provision.sh
+        curl #{script_url} --output /tmp/osd-provision.sh && \
+        chmod a+x /tmp/osd-provision.sh && \
+        /tmp/osd-provision.sh --create --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path} --wait && \
+        /tmp/osd-provision.sh --get api_url -f #{ocm_json_file.path} && \
+        /tmp/osd-provision.sh --get credentials -f #{ocm_json_file.path}
+      )
+    end
+
+    def delete_osd(name)
+      ocm_token_file = Tempfile.new("ocm-token-file", Host.localhost.workdir)
+      File.open(ocm_token_file, "w") do |f|
+        f.write(@token)
+      end
+      ocm_json_file = Tempfile.new("ocm-json-file", Host.localhost.workdir)
+      File.open(ocm_json_file, "w") do |f|
+        f.write(generate_json(name))
+      end
+      script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
+      %x(
+        rm -rf /tmp/osd-provision.sh && \
+        curl #{script_url} --output /tmp/osd-provision.sh && \
+        chmod a+x /tmp/osd-provision.sh && \
+        /tmp/osd-provision.sh --delete --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path}
       )
     end
 
