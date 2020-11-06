@@ -60,9 +60,9 @@ module BushSlicer
     def generate_json(name)
       json_data = {
         "name" => name,
-        "managed" => "true",
-        "multi_az" => "false",
-        "byoc" => "false"
+        "managed" => true,
+        "multi_az" => false,
+        "byoc" => false
       }
 
       if @multi_az
@@ -90,12 +90,23 @@ module BushSlicer
         case @cloud_opts[:cloud_type]
         when "aws"
           aws = Amz_EC2.new(service_name: @cloud)
-          json_data.merge!({"aws" => {"access_key_id":aws.access_key, "secret_access":aws.secret_key, "account_id":aws.account_id}})
-          json_data.merge!({"byoc" => "true"})
+          json_data.merge!({"aws" => {"access_key_id":aws.access_key, "secret_access_key":aws.secret_key, "account_id":aws.account_id}})
+          json_data.merge!({"byoc" => true})
         end
       end
 
       return json_data.to_json
+    end
+
+    def download_osd_script
+      script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
+      %x(
+        rm -rf /tmp/osd-scripts && \
+        mkdir /tmp/osd-scripts && \
+        curl -s #{script_url} --output /tmp/osd-scripts/osd-provision.sh && \
+        chmod a+x /tmp/osd-scripts/osd-provision.sh
+      )
+      return "/tmp/osd-scripts/osd-provision.sh"
     end
 
     def create_osd(name)
@@ -103,19 +114,18 @@ module BushSlicer
       File.open(ocm_token_file, "w") do |f|
         f.write(@token)
       end
+      puts ocm_token_file.path
+      puts File.read(ocm_token_file.path)
       ocm_json_file = Tempfile.new("ocm-json-file", Host.localhost.workdir)
       File.open(ocm_json_file, "w") do |f|
         f.write(generate_json(name))
       end
-      script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
-      %x(
-        rm -rf /tmp/osd-provision.sh && \
-        curl #{script_url} --output /tmp/osd-provision.sh && \
-        chmod a+x /tmp/osd-provision.sh && \
-        /tmp/osd-provision.sh --create --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path} --wait && \
-        /tmp/osd-provision.sh --get api_url -f #{ocm_json_file.path} && \
-        /tmp/osd-provision.sh --get credentials -f #{ocm_json_file.path}
-      )
+      puts ocm_json_file.path
+      puts File.read(ocm_json_file.path)
+      osd_script = download_osd_script
+      system("#{osd_script} --create --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path} --wait")
+      system("#{osd_script} --get api_url -f #{ocm_json_file.path}")
+      system("#{osd_script} --get credentials -f #{ocm_json_file.path}")
     end
 
     def delete_osd(name)
@@ -127,13 +137,8 @@ module BushSlicer
       File.open(ocm_json_file, "w") do |f|
         f.write(generate_json(name))
       end
-      script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/fix/scripts/osd-provision.sh?inline=false"
-      %x(
-        rm -rf /tmp/osd-provision.sh && \
-        curl #{script_url} --output /tmp/osd-provision.sh && \
-        chmod a+x /tmp/osd-provision.sh && \
-        /tmp/osd-provision.sh --delete --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path}
-      )
+      osd_script = download_osd_script
+      system("#{osd_script} --delete --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file.path}")
     end
 
   end

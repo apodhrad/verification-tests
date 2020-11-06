@@ -1,5 +1,3 @@
-puts BushSlicer::PRIVATE_DIR
-
 ENV['BUSHSLICER_PRIVATE_DIR'] = nil
 ENV['OCM_NAME'] = nil
 ENV['OCM_TOKEN'] = nil
@@ -29,21 +27,21 @@ class MyTest < Test::Unit::TestCase
     options = { :token => "abc" }
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
-    assert_equal('{"name":"myosd4","managed":"true","multi_az":"false","byoc":"false"}', json)
+    assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false}', json)
   end
 
   def test_generating_json_with_region
     options = { :token => "abc", :region => "us-east-1" }
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
-    assert_equal('{"name":"myosd4","managed":"true","multi_az":"false","byoc":"false","region":{"id":"us-east-1"}}', json)
+    assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"region":{"id":"us-east-1"}}', json)
   end
 
   def test_generating_json_with_version
     options = { :token => "abc", :version => "4.6.1" }
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
-    assert_equal('{"name":"myosd4","managed":"true","multi_az":"false","byoc":"false","version":{"id":"openshift-v4.6.1"}}', json)
+    assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"version":{"id":"openshift-v4.6.1"}}', json)
   end
 
   def test_generating_json_with_lifespan
