@@ -100,7 +100,7 @@ module BushSlicer
     def download_osd_script
       # we can consider putting the script directly into this repo
       # we can also consider cloning the full git repo but downloading a single file is much faster
-      default_osd_script_url = "https://gitlab.cee.redhat.com/apodhrad/mk-performance-tests/-/raw/curl/scripts/osd-provision.sh?inline=false"
+      default_osd_script_url = "https://gitlab.cee.redhat.com/mk-bin-packing/mk-performance-tests/-/raw/master/scripts/osd-provision.sh?inline=false"
       osd_script_url = ENV['OSD_SCRIPT_URL'] || default_osd_script_url
       # we need another parent dir as the downloaded script downloads ocm tool to its parent
       osd_scripts = "#{Dir.tmpdir}/osd-scripts"
