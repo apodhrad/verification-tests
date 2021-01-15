@@ -16,7 +16,7 @@ module BushSlicer
     include Common::Helper
 
     attr_reader :config
-    attr_reader :token, :token_file, :url, :region, :version, :nodes, :lifespan, :cloud, :cloud_opts, :multi_az
+    attr_reader :token, :token_file, :url, :region, :version, :nodes, :lifespan, :cloud, :cloud_opts, :multi_az, :aws_account_id, :aws_access_key, :aws_secret_key
 
     def initialize(**options) 
       service_name = ENV['OCM_SERVICE_NAME'] || options[:service_name] || 'ocm'
@@ -65,11 +65,24 @@ module BushSlicer
       # BYOC (Bring Your Own Cloud)
       # you can refer to already defined cloud in config.yaml
       # currently, only AWS is supported
-      @cloud = ENV['OCM_CLOUD'] || @opts[:cloud]
-      if @cloud
-        @cloud_opts = default_opts(@cloud)
-        unless @cloud_opts
-          raise "Cannot find cloud '#{cloud}' defined in '#{service_name}'"
+      if ENV['AWS_ACCOUNT_ID'] && ENV['AWS_ACCESS_KEY'] && (ENV['AWS_SECRET_ACCESS_KEY'] || ENV['AWS_SECRET_KEY'])
+        @aws_account_id = ENV['AWS_ACCOUNT_ID']
+        @aws_access_key = ENV['AWS_ACCESS_KEY']
+        @aws_secret_key = ENV['AWS_SECRET_ACCESS_KEY'] || ENV['AWS_SECRET_KEY']
+      else
+        @cloud = ENV['OCM_CLOUD'] || @opts[:cloud]
+        if @cloud
+          @cloud_opts = default_opts(@cloud)
+          unless @cloud_opts
+            raise "Cannot find cloud '#{cloud}' defined in '#{service_name}'"
+          end
+          case @cloud_opts[:cloud_type]
+          when "aws"
+            aws = Amz_EC2.new(service_name: @cloud)            
+            @aws_account_id = aws.account_id
+            @aws_access_key = aws.access_key
+            @aws_secret_key = aws.secret_key
+          end
         end
       end
     end
@@ -130,13 +143,9 @@ module BushSlicer
         json_data.merge!({"expiration_timestamp" => expiration.strftime("%Y-%m-%dT%H:%M:%SZ")})
       end
 
-      if @cloud_opts
-        case @cloud_opts[:cloud_type]
-        when "aws"
-          aws = Amz_EC2.new(service_name: @cloud)
-          json_data.merge!({"aws" => {"access_key_id":aws.access_key, "secret_access_key":aws.secret_key, "account_id":aws.account_id}})
-          json_data.merge!({"byoc" => true})
-        end
+      if @aws_account_id && @aws_access_key && @aws_secret_key
+        json_data.merge!({"aws" => {"account_id":@aws_account_id, "access_key_id":@aws_access_key, "secret_access_key":@aws_secret_key}})
+        json_data.merge!({"byoc" => true})
       end
 
       return json_data.to_json

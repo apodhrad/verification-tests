@@ -1,10 +1,4 @@
 ENV['BUSHSLICER_PRIVATE_DIR'] = nil
-ENV['OCM_NAME'] = nil
-ENV['OCM_TOKEN'] = nil
-ENV['OCM_URL'] = nil
-ENV['OCM_REGION'] = nil
-ENV['OCM_VERSION'] = nil
-ENV['OCM_LIFESPAN'] = nil
 
 lib_path = File.expand_path(File.dirname(File.dirname(__FILE__)))
 unless $LOAD_PATH.any? {|p| File.expand_path(p) == lib_path}
@@ -17,7 +11,17 @@ require_relative './ocm'
 
 class MyTest < Test::Unit::TestCase
   def setup
-    
+    ENV['OCM_NAME'] = nil
+    ENV['OCM_TOKEN'] = nil
+    ENV['OCM_URL'] = nil
+    ENV['OCM_REGION'] = nil
+    ENV['OCM_VERSION'] = nil
+    ENV['OCM_LIFESPAN'] = nil
+    ENV['AWS_REGION'] = nil
+    ENV['AWS_ACCOUNT_ID'] = nil
+    ENV['AWS_ACCESS_KEY'] = nil
+    ENV['AWS_SECRET_KEY'] = nil
+    ENV['AWS_SECRET_ACCESS_KEY'] = nil
   end
 
   # def teardown
@@ -26,6 +30,12 @@ class MyTest < Test::Unit::TestCase
   def test_default_url
     options = { :token => "abc" }
     ocm = BushSlicer::OCM.new(options)
+    assert_equal('https://api.stage.openshift.com', ocm.url)
+  end
+
+  def test_default_url_envvars
+    ENV['OCM_TOKEN'] = "abc"
+    ocm = BushSlicer::OCM.new()
     assert_equal('https://api.stage.openshift.com', ocm.url)
   end
 
@@ -41,6 +51,26 @@ class MyTest < Test::Unit::TestCase
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"region":{"id":"us-east-1"}}', json)
+  end
+
+  def test_generating_json_with_region_envvars
+    ENV['OCM_TOKEN'] = "abc"
+    ENV['OCM_REGION'] = "us-east-2"
+    ocm = BushSlicer::OCM.new()
+    json = ocm.generate_json('myosd4')
+    assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"region":{"id":"us-east-2"}}', json)
+  end
+
+  def test_generating_json_with_aws_envvars
+    ENV['OCM_TOKEN'] = "abc"
+    ENV['AWS_REGION'] = "eu-central-1"
+    ENV['AWS_ACCOUNT_ID'] = '123456789'
+    ENV['AWS_ACCESS_KEY'] = 'AKIAZZ007'
+    ENV['AWS_SECRET_ACCESS_KEY'] = 'asdfghjkl/123456'
+
+    ocm = BushSlicer::OCM.new()
+    json = ocm.generate_json('myosd4')
+    assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":true,"region":{"id":"eu-central-1"},"aws":{"account_id":"123456789","access_key_id":"AKIAZZ007","secret_access_key":"asdfghjkl/123456"}}', json)
   end
 
   def test_generating_json_with_version
