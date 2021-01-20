@@ -16,7 +16,7 @@ module BushSlicer
     include Common::Helper
 
     attr_reader :config
-    attr_reader :token, :token_file, :url, :region, :version, :nodes, :lifespan, :cloud, :cloud_opts, :multi_az, :aws_account_id, :aws_access_key, :aws_secret_key
+    attr_reader :token, :token_file, :url, :region, :version, :num_nodes, :lifespan, :cloud, :cloud_opts, :multi_az, :aws_account_id, :aws_access_key, :aws_secret_key
 
     def initialize(**options) 
       service_name = ENV['OCM_SERVICE_NAME'] || options[:service_name] || 'ocm'
@@ -52,7 +52,7 @@ module BushSlicer
       # number of worker nodes
       # minimum is 2
       # default value is 4
-      @nodes = ENV['OCM_NODES'] || @opts[:nodes]
+      @num_nodes = ENV['OCM_NUM_NODES'] || @opts[:num_nodes]
 
       # lifespan in hours
       # default value is 24 hours
@@ -92,6 +92,8 @@ module BushSlicer
     def default_opts(service_name)
       return  conf[:services, service_name.to_sym]
     end
+
+    private :default_opts
 
     def to_seconds(string)
       regex_m = /^(\d+)\s*(m|min|minutes|mins)+$/
@@ -134,8 +136,8 @@ module BushSlicer
         json_data.merge!({"version" => {"id" => "openshift-v#{@version}"}})
       end
 
-      if @nodes
-        json_data.merge!({"nodes" => {"compute" => @nodes.to_i}})
+      if @num_nodes
+        json_data.merge!({"nodes" => {"compute" => @num_nodes.to_i}})
       end
 
       if @lifespan
@@ -178,12 +180,6 @@ module BushSlicer
       end
     end
 
-    def get_last_line(text)
-      last_line = nil
-      text.each_line { |line| last_line = line }
-      return last_line
-    end
-
     # generate OCP information
     def generate_ocp_info(api_url, json_creds)
       api_regex = /https?:\/\/api\.([\S]+):[\d]*/
@@ -216,9 +212,11 @@ module BushSlicer
       # now, download the script which will take care of the OSD cluster installation
       osd_script = download_osd_script
       shell("#{osd_script} --create --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file} --wait", STDOUT)
-      ocp_api_url = get_last_line(shell("#{osd_script} --get api_url -f #{ocm_json_file}"))
-      ocp_credentials = get_last_line(shell("#{osd_script} --get credentials -f #{ocm_json_file}"))
-      
+      output = shell("#{osd_script} --get api_url -f #{ocm_json_file}")
+      ocp_api_url = output.lines.last
+      output = shell("#{osd_script} --get credentials -f #{ocm_json_file}")
+      ocp_credentials = output.lines.last
+      # generate yaml file with OCP information
       ocp_info_file = File.join(install_dir, 'OCPINFO.yml')
       File.write(ocp_info_file, generate_ocp_info(ocp_api_url, ocp_credentials).to_yaml)
     end

@@ -92,7 +92,7 @@ class MyTest < Test::Unit::TestCase
   end
 
   def test_generating_json_with_nodes
-    options = { :token => "abc", :nodes => "8" }
+    options = { :token => "abc", :num_nodes => "8" }
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"nodes":{"compute":8}}', json)
