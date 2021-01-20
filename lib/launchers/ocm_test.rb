@@ -22,6 +22,7 @@ class MyTest < Test::Unit::TestCase
     ENV['AWS_ACCESS_KEY'] = nil
     ENV['AWS_SECRET_KEY'] = nil
     ENV['AWS_SECRET_ACCESS_KEY'] = nil
+    ENV['GIT_OSD_URI'] = nil
   end
 
   # def teardown
@@ -96,15 +97,6 @@ class MyTest < Test::Unit::TestCase
     ocm = BushSlicer::OCM.new(options)
     json = ocm.generate_json('myosd4')
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"nodes":{"compute":8}}', json)
-  end
-
-  def test_downloading_osd_script
-    options = { :token => "abc" }
-    ocm = BushSlicer::OCM.new(options)
-    osd_script = ocm.download_osd_script
-    assert(File.exists?(osd_script), "File 'osd-provision.sh' was not downloaded")
-    content = File.read(osd_script)
-    assert_match(/.*ocm.*/, content)
   end
 
   def test_executing_shell

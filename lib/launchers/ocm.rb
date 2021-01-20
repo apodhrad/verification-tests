@@ -155,7 +155,11 @@ module BushSlicer
 
     # download the script 'osd-provision.sh' which takes care of the OSD installation/uninstallation
     def download_osd_script
-      osd_repo_uri = ENV['GIT_OSD_URI'] || 'https://gitlab.cee.redhat.com/mk-bin-packing/mk-performance-tests.git'
+      if ENV['GIT_OSD_URI']
+        osd_repo_uri = ENV['GIT_OSD_URI']
+      else
+        raise "You need to define env variable 'GIT_OSD_URI'"
+      end
       osd_repo_dir = File.join(Dir.tmpdir, 'osd_repo')
       FileUtils.rm_rf(osd_repo_dir)
       git = BushSlicer::Git.new(uri: osd_repo_uri, dir: osd_repo_dir)
