@@ -40,29 +40,29 @@ class MyTest < Test::Unit::TestCase
     assert_equal('https://api.stage.openshift.com', ocm.url)
   end
 
-  def test_generating_json
+  def test_generating_cluster_data
     options = { :token => "abc" }
     ocm = BushSlicer::OCM.new(options)
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false}', json)
   end
 
-  def test_generating_json_with_region
+  def test_generating_cluster_data_with_region
     options = { :token => "abc", :region => "us-east-1" }
     ocm = BushSlicer::OCM.new(options)
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"region":{"id":"us-east-1"}}', json)
   end
 
-  def test_generating_json_with_region_envvars
+  def test_generating_cluster_data_with_region_envvars
     ENV['OCM_TOKEN'] = "abc"
     ENV['OCM_REGION'] = "us-east-2"
     ocm = BushSlicer::OCM.new()
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"region":{"id":"us-east-2"}}', json)
   end
 
-  def test_generating_json_with_aws_envvars
+  def test_generating_cluster_data_with_aws_envvars
     ENV['OCM_TOKEN'] = "abc"
     ENV['AWS_REGION'] = "eu-central-1"
     ENV['AWS_ACCOUNT_ID'] = '123456789'
@@ -70,21 +70,21 @@ class MyTest < Test::Unit::TestCase
     ENV['AWS_SECRET_ACCESS_KEY'] = 'asdfghjkl/123456'
 
     ocm = BushSlicer::OCM.new()
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":true,"region":{"id":"eu-central-1"},"aws":{"account_id":"123456789","access_key_id":"AKIAZZ007","secret_access_key":"asdfghjkl/123456"}}', json)
   end
 
   def test_generating_json_with_version
     options = { :token => "abc", :version => "4.6.1" }
     ocm = BushSlicer::OCM.new(options)
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"version":{"id":"openshift-v4.6.1"}}', json)
   end
 
-  def test_generating_json_with_lifespan
+  def test_generating_cluster_data_with_lifespan
     options = { :token => "abc", :lifespan => "25h" }
     ocm = BushSlicer::OCM.new(options)
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     time = Time.now + 60 * 60 * 25
     year = time.strftime("%Y")
     month = time.strftime("%m")
@@ -92,10 +92,10 @@ class MyTest < Test::Unit::TestCase
     assert_match(/.*"expiration_timestamp":"#{year}-#{month}-#{day}T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z".*/, json)
   end
 
-  def test_generating_json_with_nodes
+  def test_generating_cluster_data_with_nodes
     options = { :token => "abc", :num_nodes => "8" }
     ocm = BushSlicer::OCM.new(options)
-    json = ocm.generate_json('myosd4')
+    json = ocm.generate_cluster_data('myosd4').to_json
     assert_equal('{"name":"myosd4","managed":true,"multi_az":false,"byoc":false,"nodes":{"compute":8}}', json)
   end
 
@@ -115,15 +115,65 @@ class MyTest < Test::Unit::TestCase
     assert_equal("Error when executing '#{hello_script} '. Response: ", error.message)
   end
 
-  def test_generating_ocp_info
+  def test_downloading_ocm_cli
     options = { :token => "abc" }
     ocm = BushSlicer::OCM.new(options)
-    result = ocm.generate_ocp_info('https://api.osd4-123.w95o.s1.foo.com:6443/', '{ "user": "guest", "password": "some-password" }')
+    ocm_cli = ocm.download_ocm_cli
+    assert(File.exists?(ocm_cli), "File '#{ocm_cli}' was not downloaded")
+    output = ocm.shell('/tmp/ocm version').strip
+    assert_equal("0.1.46", output)
+  end
+
+  def test_executing_ocm
+    options = { :token => "abc" }
+    ocm = BushSlicer::OCM.new(options)
+    output = ocm.exec("version")
+    assert_equal("0.1.46", output)
+    # if we provide some fake ocm-cli
+    if ENV['OCM_CLI_URL']
+      output = ocm.get_value("osd4-001", "id")
+      assert_equal("1ia3pju6itu3oqd8ba6p522858ua49hq", output)
+      output = ocm.get_value("osd4-001", "state")
+      assert_equal("ready", output)
+      output = ocm.get_value("osd4-001", "api.url")
+      assert_equal("https://api.osd4-001.w95o.s1.foo.com", output)
+      creds = ocm.get_credentials("osd4-001")
+      assert_equal("guest", creds["admin"]["user"])
+      assert_equal("some-password", creds["admin"]["password"])
+    end
+  end
+
+  def test_generating_ocpinfo_data
+    options = { :token => "abc" }
+    ocm = BushSlicer::OCM.new(options)
+    result = ocm.generate_ocpinfo_data('https://api.osd4-123.w95o.s1.foo.com:6443/', 'guest', 'some-password')
     assert_equal('osd4-123.w95o.s1.foo.com', result["ocp_domain"])
     assert_equal('https://api.osd4-123.w95o.s1.foo.com:6443', result["ocp_api_url"])
     assert_equal('https://console-openshift-console.apps.osd4-123.w95o.s1.foo.com', result["ocp_console_url"])
     assert_equal('guest', result["user"])
     assert_equal('some-password', result["password"])
+    result = ocm.generate_ocpinfo_data('https://api.osd4-123.w95o.s1.foo.com', 'guest', 'some-password')
+    assert_equal('osd4-123.w95o.s1.foo.com', result["ocp_domain"])
+    assert_equal('https://api.osd4-123.w95o.s1.foo.com:6443', result["ocp_api_url"])
+    assert_equal('https://console-openshift-console.apps.osd4-123.w95o.s1.foo.com', result["ocp_console_url"])
+    assert_equal('guest', result["user"])
+    assert_equal('some-password', result["password"])
+  end
+
+  def test_creating_osd
+    # only if we provide some fake ocm-cli
+    if ENV['OCM_CLI_URL']
+      options = { :token => "abc" }
+      ocm = BushSlicer::OCM.new(options)
+      ocm.create_osd("osd4-001")
+      ocpinfo_file = File.join(BushSlicer::Host.localhost.workdir, 'install-dir', 'OCPINFO.yml')
+      ocpinfo = YAML.load_file(ocpinfo_file)
+      assert_equal('osd4-001.w95o.s1.foo.com', ocpinfo['ocp_domain'])
+      assert_equal('https://console-openshift-console.apps.osd4-001.w95o.s1.foo.com', ocpinfo['ocp_console_url'])
+      assert_equal('https://api.osd4-001.w95o.s1.foo.com:6443', ocpinfo['ocp_api_url'])
+      assert_equal('guest', ocpinfo['user'])
+      assert_equal('some-password', ocpinfo['password'])
+    end
   end
 
 end

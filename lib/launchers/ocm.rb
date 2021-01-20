@@ -10,12 +10,14 @@ require 'json'
 require 'yaml'
 require 'tmpdir'
 require 'git'
+require 'os'
+require 'http'
 
 module BushSlicer
   class OCM
     include Common::Helper
 
-    attr_reader :config
+    attr_reader :config, :ocm_cli
     attr_reader :token, :token_file, :url, :region, :version, :num_nodes, :lifespan, :cloud, :cloud_opts, :multi_az, :aws_account_id, :aws_access_key, :aws_secret_key
 
     def initialize(**options) 
@@ -66,6 +68,8 @@ module BushSlicer
       # you can refer to already defined cloud in config.yaml
       # currently, only AWS is supported
       if ENV['AWS_ACCOUNT_ID'] && ENV['AWS_ACCESS_KEY'] && (ENV['AWS_SECRET_ACCESS_KEY'] || ENV['AWS_SECRET_KEY'])
+        # account_id will not be required once the following issue is fixed
+        # https://github.com/openshift-online/ocm-cli/issues/216
         @aws_account_id = ENV['AWS_ACCOUNT_ID']
         @aws_access_key = ENV['AWS_ACCESS_KEY']
         @aws_secret_key = ENV['AWS_SECRET_ACCESS_KEY'] || ENV['AWS_SECRET_KEY']
@@ -114,9 +118,8 @@ module BushSlicer
       end
     end
 
-    # create a json which specifies OSD cluster
-    # in the future we plan to move the logic into the script 'osd-provision.sh'
-    def generate_json(name)
+    # Generate a cluster data used for creating OSD cluster
+    def generate_cluster_data(name)
       json_data = {
         "name" => name,
         "managed" => true,
@@ -150,25 +153,30 @@ module BushSlicer
         json_data.merge!({"byoc" => true})
       end
 
-      return json_data.to_json
+      return json_data
     end
 
-    # download the script 'osd-provision.sh' which takes care of the OSD installation/uninstallation
-    def download_osd_script
-      if ENV['GIT_OSD_URI']
-        osd_repo_uri = ENV['GIT_OSD_URI']
-      else
-        raise "You need to define env variable 'GIT_OSD_URI'"
+    def download_ocm_cli
+      url = ENV['OCM_CLI_URL']
+      unless url
+        url_prefix = ENV['OCM_CLI_URL_PREFIX'] || 'https://github.com/openshift-online/ocm-cli/releases/download/v0.1.46'
+        if OS.mac?
+          url = "#{url_prefix}/ocm-darwin-amd64"
+        elsif OS.linux?
+          url = "#{url_prefix}/ocm-linux-amd64"
+        else
+          raise "Unsupported OS"
+        end
       end
-      osd_repo_dir = File.join(Dir.tmpdir, 'osd_repo')
-      FileUtils.rm_rf(osd_repo_dir)
-      git = BushSlicer::Git.new(uri: osd_repo_uri, dir: osd_repo_dir)
-      git.clone
-      osd_script = File.join(osd_repo_dir, 'scripts', 'osd-provision.sh')
-      if !File.exists?(osd_script)
-        raise "Cannot find #{osd_script}"
-      end
-      return osd_script
+      #doesn't work
+      #File.open('/tmp/ocm', 'wb') do |file|
+      #  @result = Http.get(url: url) do |chunk|
+      #    file.write chunk
+      #  end
+      #end
+      shell("curl -L #{url} -o /tmp/ocm")
+      File.chmod(0775, '/tmp/ocm')
+      return '/tmp/ocm'
     end
 
     def shell(cmd, output = nil)
@@ -184,55 +192,103 @@ module BushSlicer
       end
     end
 
-    # generate OCP information
-    def generate_ocp_info(api_url, json_creds)
-      api_regex = /https?:\/\/api\.([\S]+):[\d]*/
-      if api_url.match(api_regex)
-        domain = api_url.scan(api_regex).first.first
-      else
-        raise "Given api_url '#{api_url}' doesn't match '#{api_regex}'"
+    def exec(cmd)
+      unless @ocm_cli
+        @ocm_cli = download_ocm_cli
       end
-      credentials = JSON.parse(json_creds)
+      return shell("#{@ocm_cli} #{cmd}").strip
+    end
+
+    def login
+      ocm_token_file = Tempfile.new("ocm-token", Host.localhost.workdir)
+      File.write(ocm_token_file, @token)
+      exec("login --url=#{@url} --token=$(cat #{ocm_token_file.path})")
+    end
+
+    def get_value(osd_name, attribute)
+      result = exec("list clusters --parameter search=\"name='#{osd_name}'\" --columns #{attribute}")
+      return result.lines.last
+    end
+
+    def get_credentials(osd_name)
+      osd_id = get_value(osd_name, "id")
+      return JSON.parse(exec("get /api/clusters_mgmt/v1/clusters/#{osd_id}/credentials"))
+    end
+
+    # generate OCP information
+    def generate_ocpinfo_data(api_url, user, password)
+      host = URI.parse(api_url).host
+      if host
+        host = host.gsub(/^api\./, '')
+      else
+        raise "Given API url '#{api_url}' cannot be parsed"
+      end
       ocp_info = {
-        "ocp_domain" => domain,
-        "ocp_api_url" => "https://api.#{domain}:6443",
-        "ocp_console_url" => "https://console-openshift-console.apps.#{domain}",
-        "user" => credentials["user"],
-        "password" => credentials["password"]
+        "ocp_domain" => host,
+        "ocp_api_url" => "https://api.#{host}:6443",
+        "ocp_console_url" => "https://console-openshift-console.apps.#{host}",
+        "user" => user,
+        "password" => password
       }
       return ocp_info
     end
 
-    # create OSD cluster
-    def create_osd(name)
-      # cerate a temp file with ocm-token
-      ocm_token_file = Tempfile.new("ocm-token-file", Host.localhost.workdir)
-      File.write(ocm_token_file, @token)
-      # create cluster.json in a workdir/install-dir
+    # create workdir/install-dir
+    def create_install_dir
       install_dir = File.join(Host.localhost.workdir, 'install-dir')
       FileUtils.mkdir_p(install_dir)
-      ocm_json_file = File.join(install_dir, 'cluster.json')
-      File.write(ocm_json_file, generate_json(name))
-      # now, download the script which will take care of the OSD cluster installation
-      osd_script = download_osd_script
-      shell("#{osd_script} --create --cloud-token-file #{ocm_token_file.path} -f #{ocm_json_file} --wait", STDOUT)
-      output = shell("#{osd_script} --get api_url -f #{ocm_json_file}")
-      ocp_api_url = output.lines.last
-      output = shell("#{osd_script} --get credentials -f #{ocm_json_file}")
-      ocp_credentials = output.lines.last
-      # generate yaml file with OCP information
-      ocp_info_file = File.join(install_dir, 'OCPINFO.yml')
-      File.write(ocp_info_file, generate_ocp_info(ocp_api_url, ocp_credentials).to_yaml)
+      return install_dir
+    end
+
+    def create_cluster_file(osd_name, dir, filename = 'cluster.json')
+      cluster_file = File.join(dir, filename)
+      cluster_data = generate_cluster_data(osd_name)
+      File.write(cluster_file, cluster_data.to_json)
+      return cluster_file
+    end
+
+    def create_ocpinfo_file(osd_name, dir, filename = 'OCPINFO.yml')
+      api_url = get_value(osd_name, "api.url")
+      osd_id = get_value(osd_name, "id")
+      ocp_creds = get_credentials(osd_name)
+      user = ocp_creds["admin"]["user"]
+      password = ocp_creds["admin"]["password"]
+      ocpinfo_file = File.join(dir, filename)
+      ocpinfo_data = generate_ocpinfo_data(api_url, user, password)
+      File.write(ocpinfo_file, ocpinfo_data.to_yaml)
+      return ocpinfo_file
+    end
+
+    # Wait until OSD cluster is ready and OCP version is available
+    # NOTE: we need to wait for registering all metrics - OCP version indicates this state
+    def wait_for_osd(osd_name)
+      loop do
+        osd_status = get_value(osd_name, "state")
+        ocp_version = get_value(osd_name, "openshift_version")
+        logger.info("Status of cluster #{osd_name} is #{osd_status} and OCP version is #{ocp_version}")
+        if osd_status == "ready" && ocp_version != "NONE"
+          break
+        end
+        logger.info("Check again after 2 minutes")
+        sleep(120)
+      end
+    end
+
+    # Create OSD cluster
+    def create_osd(osd_name)
+      login
+      install_dir = create_install_dir
+      cluster_file = create_cluster_file(osd_name, install_dir)
+      exec("post /api/clusters_mgmt/v1/clusters --body='#{cluster_file}'")
+      wait_for_osd(osd_name)
+      create_ocpinfo_file(osd_name, install_dir)
     end
 
     # delete OSD cluster
-    def delete_osd(name)
-      # create a temp file with ocm-token
-      ocm_token_file = Tempfile.new("ocm-token-file", Host.localhost.workdir)
-      File.write(ocm_token_file, @token)
-      # now, download the script which will take care of the OSD cluster installation
-      osd_script = download_osd_script
-      shell("#{osd_script} --delete --cloud-token-file #{ocm_token_file.path} -n #{name}")
+    def delete_osd(osd_name)
+      login
+      osd_id = get_value(osd_name, "id")
+      exec("delete post /api/clusters_mgmt/v1/clusters/#{osd_id}")
     end
 
   end

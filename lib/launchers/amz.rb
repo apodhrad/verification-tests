@@ -52,8 +52,6 @@ module BushSlicer
         )
       }) )
       Aws.config.update( config[:config_opts].merge({region: region})) if region
-
-      @account_id = awscred["aws_account_id"]
     end
 
     private def client_ec2
@@ -619,7 +617,7 @@ module BushSlicer
 
     # @return [String]
     def account_id
-      return @account_id
+      client_sts.get_caller_identity.to_h[:account]
     end
 
     # @return [Object] undefined
